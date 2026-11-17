@@ -1,6 +1,13 @@
-﻿namespace ConsultaProcessosApi.Models
+﻿using Microsoft.AspNetCore.Identity;
+using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
+
+namespace ConsultaProcessosApi.Models;
+
+public class Usuario: IdentityUser
 {
-    public class Usuario
+    public Usuario(): base()
     {
     }
+    public DateTime DataCadastro { get; set; } = DateTime.Now;
 }

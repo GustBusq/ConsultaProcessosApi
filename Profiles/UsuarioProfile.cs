@@ -1,6 +1,14 @@
-﻿namespace ConsultaProcessosApi.Profiles
+﻿using AutoMapper;
+using ConsultaProcessosApi.Data.Dtos;
+using ConsultaProcessosApi.Models;
+
+
+namespace ConsultaProcessosApi.Profiles;
+
+public class UsuarioProfile: Profile
 {
-    public class UsuarioProfile
+    public UsuarioProfile()
     {
+        CreateMap<CreateUsuarioDto, Usuario>();
     }
 }
