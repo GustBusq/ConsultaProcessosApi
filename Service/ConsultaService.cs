@@ -1,4 +1,6 @@
-﻿using ConsultaProcessosApi.Datas;
+﻿using AutoMapper;
+using ConsultaProcessosApi.Data.Dtos;
+using ConsultaProcessosApi.Datas;
 using ConsultaProcessosApi.Models;
 using System.Text;
 using System.Text.Json;
@@ -10,8 +12,15 @@ public class ConsultaService
 {
     private ConsultaContext _context;
     private HttpClient _httpClient;
-    private IConfiguration configuration;
+    private IMapper _mapper;
 
+
+    public ConsultaService(ConsultaContext context, HttpClient httpClient, IMapper mapper)
+    {
+        _context = context;
+        _httpClient = httpClient;
+        _mapper = mapper;
+    }
 
     private static readonly Dictionary<string, string> UfPorCodigo = new()
     {
@@ -44,35 +53,133 @@ public class ConsultaService
         ["27"] = "to"
     };
 
-    public ConsultaService(ConsultaContext context, HttpClient httpClient)
+    private static readonly Dictionary<string, string> NomeEstado = new()
     {
-        _context = context;
-        _httpClient = httpClient;
-        _httpClient.BaseAddress = new Uri("https://api-publica.datajud.cnj.jus.br");
-        _httpClient.DefaultRequestHeaders.Add("Authorization", $"APIKey {configuration["AuthorizationKey"]}");
-    }
+        ["ac"] = "Acre",
+        ["al"] = "Alagoas",
+        ["ap"] = "Amapá",
+        ["am"] = "Amazonas",
+        ["ba"] = "Bahia",
+        ["ce"] = "Ceará",
+        ["dft"] = "Distrito Federal e Territórios",
+        ["es"] = "Espírito Santo",
+        ["go"] = "Goiás",
+        ["ma"] = "Maranhão",
+        ["mt"] = "Mato Grosso",
+        ["ms"] = "Mato Grosso do Sul",
+        ["mg"] = "Minas Gerais",
+        ["pa"] = "Pará",
+        ["pb"] = "Paraíba",
+        ["pr"] = "Paraná",
+        ["pe"] = "Pernambuco",
+        ["pi"] = "Piauí",
+        ["rj"] = "Rio de Janeiro",
+        ["rn"] = "Rio Grande do Norte",
+        ["rs"] = "Rio Grande do Sul",
+        ["ro"] = "Rondônia",
+        ["rr"] = "Roraima",
+        ["sc"] = "Santa Catarina",
+        ["se"] = "Sergipe",
+        ["sp"] = "São Paulo",
+        ["to"] = "Tocantins"
+    };
 
-    public async Task<List<ConsultaProcessos>> ConsultarEResgistrar(string numeroProcesso)
+    public async Task<List<ReadConsultaDto>> ConsultarEResgistrar(string numeroProcesso)
     {
-
+        // 1. Descobrir o alias do tribunal e limpar o número
         var alias = ObterAlias(numeroProcesso);
         var numero = NormalizarProcesso(numeroProcesso);
 
-        var url = $"{_httpClient.BaseAddress}/api_publica_{alias}/_search";
+        if (alias == null || numero == null)
+        {
+            throw new ArgumentException("Número de processo inválido ou tribunal não suportado.");
+        }
 
-        var corpo = new StringContent(
-            $$"""{"query":{"match":{"numeroProcesso":"{{numero}}"}}}""",
-            Encoding.UTF8,
-            "application/json"
-            );
+        // 2. Montar o corpo da requisição
+        var json = JsonSerializer.Serialize(new
+        {
+            query = new { match = new { numeroProcesso = numero } }
+        });
 
-        var resposta = await _httpClient.PostAsync(url, corpo);
-        var json = await resposta.Content.ReadAsStringAsync();
+        var corpo = new StringContent(json, Encoding.UTF8, "application/json");
+
+        // 3. Chamar a API
+        var resposta = await _httpClient.PostAsync($"api_publica_{alias}/_search", corpo);
+        var jsonResp = await resposta.Content.ReadAsStringAsync();
         resposta.EnsureSuccessStatusCode();
 
-        var resultado = JsonSerializer.Deserialize<DatajudResponse>(json);
+        // 4. Converter o JSON nas classes
+        var resultado = JsonSerializer.Deserialize<DatajudResponse>(jsonResp);
 
-        return resultado;
+        // 5. Buscar o tribunal no banco
+        var tribunal = _context.Tribunais.FirstOrDefault(t => t.Sigla.ToLower() == alias);
+
+        if (tribunal == null)
+        {
+            tribunal = new Tribunais
+            {
+                Sigla = alias.ToUpper(),
+                Nome = ObterNomeTribunal(alias)
+            };
+
+            _context.Tribunais.Add(tribunal);
+            await _context.SaveChangesAsync();
+        ;
+        }
+
+        // 6. Montar a lista de consultas, um processo por vez
+        var consultas = new List<ConsultaProcessos>();
+
+        foreach (var hit in resultado.hitsOuver.hits)
+        {
+            var processo = hit.source;
+
+            // Classe: se não vier, usa um texto padrão
+            string classe;
+            if (processo.classe == null)
+            {
+                classe = "Não informada";
+            }
+            else
+            {
+                classe = processo.classe.nome;
+            }
+
+            // Assuntos: se não vier, usa um texto padrão
+            string assunto;
+            if (processo.assuntos == null)
+            {
+                assunto = "Não informado";
+            }
+            else
+            {
+                var nomes = new List<string>();
+                foreach (var a in processo.assuntos)
+                {
+                    nomes.Add(a.nome);
+                }
+                assunto = string.Join(", ", nomes);
+            }
+
+            var consulta = new ConsultaProcessos
+            {
+                NumeroProcesso = processo.numeroProcesso,
+                ClasseProcesso = classe,
+                AssuntoProcesso = assunto,
+                TribunaisId = tribunal.Id,
+                Tribunais = tribunal
+            };
+
+            consultas.Add(consulta);
+        }
+
+        // 7. Salvar no banco
+        _context.Consultas.AddRange(consultas);
+        await _context.SaveChangesAsync();
+
+        // 8. Converter para o DTO e devolver
+        var respostaDto = _mapper.Map<List<ReadConsultaDto>>(consultas);
+        return respostaDto;
     }
 
     public string? NormalizarProcesso(string numeroProcesso)
@@ -87,14 +194,15 @@ public class ConsultaService
         return numero;
     }
 
-    public string? ObterAlias(string processo)
+    private string? ObterAlias(string processo)
     {
         var numero = NormalizarProcesso(processo);
+        if (numero == null) return null;
 
         var justica = numero[13]; // Ramo da justiça
         var tribunal = numero.Substring(14, 2); // tribunal
 
-        return j switch
+        return justica switch
         {
             '4' => $"trf{int.Parse(tribunal)}",
             '5' => $"trt{int.Parse(tribunal)}",
@@ -103,19 +211,41 @@ public class ConsultaService
         };
     }
 
+    private string ObterNomeTribunal(string alias)
+    {
+        if (alias.StartsWith("trf"))
+        {
+            var numero = alias.Substring(3);
+            return $"Tribunal Regional Federal da {numero}ª Região";// "trf1" -> "1"
+        }
+
+        if (alias.StartsWith("trt"))
+        {
+            var numero = alias.Substring(3);
+            return $"Tribunal Regional do Trabalho da {numero}ª Região";// "trt23" -> "23"
+        }
+
+        if (alias.StartsWith("tj"))
+        {
+            var uf = alias.Substring(2);
+            if(NomeEstado.TryGetValue(uf, out var estado))
+            {
+                return $"Tribunal de Justiça - {estado}"; // "tjsp" -> "sp"
+            }
+        }
+
+        return alias.ToUpper(); // se nada bateu, usa a sigla
+    }
+
 
     public record DatajudResponse([property: JsonPropertyName("hits")] HitsOuver hitsOuver);
     public record HitsOuver([property: JsonPropertyName("hits")] List<Hit> hits);
     public record Hit([property: JsonPropertyName("_source")] DatajudProcesso source);
     public record DatajudProcesso(
         [property: JsonPropertyName("numeroProcesso")] string numeroProcesso,
-        [property: JsonPropertyName("classeProcessual")] string classeProcessual,
-        [property: JsonPropertyName("assunto")] string assunto,
-        [property: JsonPropertyName("dataDistribuicao")] string dataDistribuicao,
-        [property: JsonPropertyName("foro")] string foro,
-        [property: JsonPropertyName("vara")] string vara,
-        [property: JsonPropertyName("juiz")] string juiz
-        );
+        [property: JsonPropertyName("classe")] CodigoNome classe,
+        [property: JsonPropertyName("assuntos")] List<CodigoNome> assuntos,
+        [property: JsonPropertyName("tribunal")] string tribunal);
 
     public record CodigoNome(
         [property: JsonPropertyName("codigo")] int codigo,

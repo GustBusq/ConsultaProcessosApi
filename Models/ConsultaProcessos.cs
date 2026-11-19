@@ -18,5 +18,5 @@ public class ConsultaProcessos
     public virtual Tribunais Tribunais { get; set; }
 
     [Required]
-    public int UsuarioId { get; set; }
+    public int UsuarioId { get; set; } = 1;
 }

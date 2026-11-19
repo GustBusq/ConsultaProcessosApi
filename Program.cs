@@ -14,10 +14,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ------ METADE 1: REGISTRAR SERVIÇOS (antes do Build) ------
 
-// 1. Controllers + Swagger — o básico de toda API
+// 1. Controllers + Swagger — o básico de toda API - HttpClient
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHttpClient();
 
 // 2. Banco de dados — o EF Core precisa saber ONDE e COMO conectar
 var connString = builder.Configuration["ConnectionStrings:UsuarioConnection"];
@@ -63,6 +64,13 @@ builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 // 6. Seus próprios Services — cada um que você criou precisa ser registrado
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<UsuarioService>();
+builder.Services.AddHttpClient<ConsultaService>(
+    client =>
+        {
+            client.BaseAddress = new Uri("https://api-publica.datajud.cnj.jus.br/");
+            client.DefaultRequestHeaders.Add("Authorization",
+                $"APIKey {builder.Configuration["AuthorizationKey"]}");
+        });
 
 
 // ----- METADE 2: PIPELINE HTTP (ordem IMPORTA de verdade) -----
