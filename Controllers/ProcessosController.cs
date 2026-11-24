@@ -1,7 +1,5 @@
-﻿using AutoMapper;
-using ConsultaProcessosApi.Data.Dtos;
-using ConsultaProcessosApi.Datas;
-using ConsultaProcessosApi.Service;
+﻿using ConsultaProcessosApi.Service;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Net;
 
@@ -18,7 +16,14 @@ public class ProcessosController: ControllerBase
         _consultaService =  consultaService;
     }
 
+    /// <summary>
+    /// Obter processo atrés do nuemro.
+    /// </summary>
+    /// <param name="numeroProcesso"></param>
+    /// <returns>Retorna o processo que solicitou através do numero dele.</returns>
+
     [HttpGet("/processos")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> ObterProcesso(string numeroProcesso)
     {
         try

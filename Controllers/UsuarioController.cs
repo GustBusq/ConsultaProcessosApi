@@ -1,8 +1,11 @@
 ﻿using AutoMapper;
 using ConsultaProcessosApi.Data.Dtos;
 using ConsultaProcessosApi.Datas;
+using ConsultaProcessosApi.Models;
 using ConsultaProcessosApi.Service;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace ConsultaProcessosApi.Controllers;
 
@@ -10,11 +13,12 @@ namespace ConsultaProcessosApi.Controllers;
 [Route("api/[controller]")]
 public class CadastroUsuarioController: ControllerBase
 {
-    private UsuarioService _context;
+    private UsuarioService _manager;
 
-    public CadastroUsuarioController( UsuarioService context)
+
+    public CadastroUsuarioController( UsuarioService manager)
     {
-        _context = context;
+        _manager = manager;
     }
 
     /// <summary>
@@ -22,10 +26,18 @@ public class CadastroUsuarioController: ControllerBase
     /// </summary>
     /// <param name="createUsuarioDto"></param>
     /// <returns>Retorna uma mensagem de sucesso após o cadastro for bem sucedido</returns>
-    [HttpPost]
+    [HttpPost("cadastro")]
     public async Task<IActionResult> CadastrarUsuario(CreateUsuarioDto createUsuarioDto)
     {
-        await _context.CadastrarUser(createUsuarioDto);
+        await _manager.CadastrarUser(createUsuarioDto);
         return Ok("Usuario cadastrado com sucesso!");
+    }
+
+    [HttpPost("login")]
+    public async Task<IActionResult> Login(LoginUserDto loginDto)
+    {
+        var token = await _manager.LoginUser(loginDto);
+
+        return Ok(token);
     }
 }
